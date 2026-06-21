@@ -10,7 +10,7 @@
     <packaging>pom</packaging>
     <modules>
         <module>result-set-resolver-processor</module>
-        <module>example</module>
+        <module>example-result-set-resolver</module>
     </modules>
 
     <properties>
