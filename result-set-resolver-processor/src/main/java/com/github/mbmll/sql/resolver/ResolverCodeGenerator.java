@@ -9,12 +9,44 @@ import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.Reader;
 import java.io.Writer;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
+import java.math.BigDecimal;
+import java.net.URL;
+import java.sql.*;
+import java.sql.Date;
+import java.util.*;
 
 public class ResolverCodeGenerator {
+
+    static final Set<String> columnTypes = new HashSet<>();
+
+    static {
+        columnTypes.add(Array.class.getName());
+        columnTypes.add(InputStream.class.getName());
+        columnTypes.add(BigDecimal.class.getName());
+        columnTypes.add(Reader.class.getName());
+        columnTypes.add(Blob.class.getName());
+        columnTypes.add(Clob.class.getName());
+        columnTypes.add(Date.class.getName());
+        columnTypes.add(NClob.class.getName());
+        columnTypes.add(String.class.getName());
+        columnTypes.add(Object.class.getName());
+        columnTypes.add(Ref.class.getName());
+        columnTypes.add(RowId.class.getName());
+        columnTypes.add(SQLXML.class.getName());
+        columnTypes.add(Time.class.getName());
+        columnTypes.add(Timestamp.class.getName());
+        columnTypes.add(URL.class.getName());
+        // primitive
+        columnTypes.add(Boolean.class.getName());
+        columnTypes.add(Byte.class.getName());
+        columnTypes.add(Short.class.getName());
+        columnTypes.add(Float.class.getName());
+        columnTypes.add(Double.class.getName());
+        columnTypes.add(Long.class.getName());
+    }
 
     private final ProcessingEnvironment processingEnv;
     private final Elements elementUtil;
@@ -108,8 +140,10 @@ public class ResolverCodeGenerator {
      * @return
      */
     private String buildSetter(String entitySimpleCls, FieldMeta fieldMeta) {
-        return "    protected void " + fieldMeta.setterName + "(" + entitySimpleCls + " target, ResultSet rs, int i) throws SQLException {\n" +
-                "        target." + fieldMeta.setterName + "(rs." + fieldMeta.rsGetter + "(i));\n" +
+        String removed = StringUtils.isEmpty(fieldMeta.rsGetter) ? "//" : "";
+        return "    protected void " + fieldMeta.setterName + "(" + entitySimpleCls + " target, ResultSet rs, int i) " +
+                "throws SQLException {\n" +
+                "        " + removed + " target." + fieldMeta.setterName + "(rs." + fieldMeta.rsGetter + "(i));\n" +
                 "    }\n\n";
     }
 
@@ -207,31 +241,44 @@ public class ResolverCodeGenerator {
         return "package " + targetPackageName + ";\n\n";
     }
 
+
     /**
      * Java类型 → ResultSet取值方法映射
      */
     private static String getResultSetGetter(TypeMirror type) {
         String typeName = type.toString();
+        System.out.println(typeName);
+        System.out.println(columnTypes);
+        if (columnTypes.contains(typeName)) {
+            try {
+                return "get" + Class.forName(typeName).getSimpleName();
+            } catch (ClassNotFoundException e) {
+                e.printStackTrace();
+            }
+        }
         switch (typeName) {
-            case "java.lang.String":
-                return "getString";
+            case "boolean":
+                return "getBoolean";
+            case "byte":
+                return "getByte";
+            case "short":
+                return "getShort";
+//            case "char":
+//            case "java.lang.Charater":
+//                return "getChar";
             case "int":
             case "java.lang.Integer":
                 return "getInt";
-            case "boolean":
-            case "java.lang.Boolean":
-                return "getBoolean";
-            case "long":
-            case "java.lang.Long":
-                return "getLong";
+            case "float":
+                return "getFloat";
             case "double":
-            case "java.lang.Double":
                 return "getDouble";
-            case "java.util.Date":
-                return "getTimestamp";
+            case "long":
+                return "getLong";
+            case "byte[]":
+                return "getBytes";
             default:
-                // 通用Object兜底
-                return "getObject";
+                return null;
         }
     }
 

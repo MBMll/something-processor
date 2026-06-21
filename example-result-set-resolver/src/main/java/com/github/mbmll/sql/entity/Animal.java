@@ -18,4 +18,6 @@ public class Animal implements Serializable {
     private Integer age;
     private Boolean sex;
     private String type;
+    private double high;
+    private char[] sexChar;
 }

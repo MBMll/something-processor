@@ -4,6 +4,7 @@ import com.github.mbmll.sql.annotation.AutoResultSetResolver;
 import lombok.Data;
 
 import java.io.Serializable;
+import java.util.Date;
 
 /**
  * @Author xlc
@@ -17,4 +18,6 @@ public class User implements Serializable {
     private String name;
     private Integer age;
     private Boolean sex;
+    private Date birth;
+    private byte[] photo;
 }
