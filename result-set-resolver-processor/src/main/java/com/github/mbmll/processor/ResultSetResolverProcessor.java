@@ -5,6 +5,7 @@ import com.github.mbmll.sql.resolver.ResolverCodeGenerator;
 
 import javax.annotation.processing.*;
 import javax.lang.model.SourceVersion;
+import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
 import java.util.Set;
 
@@ -26,11 +27,12 @@ public class ResultSetResolverProcessor extends AbstractProcessor {
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
         // 遍历所有标记 @AutoResultSetResolver 的实体类
-        roundEnv.getElementsAnnotatedWith(AutoResultSetResolver.class)
-                .stream()
-                .filter(element -> element instanceof TypeElement)
-                .map(element -> (TypeElement) element)
-                .forEach(entityType -> codeGenerator.generateResolver(entityType));
+        for (Element element : roundEnv.getElementsAnnotatedWith(AutoResultSetResolver.class)) {
+            if (element instanceof TypeElement) {
+                TypeElement entityType = (TypeElement) element;
+                codeGenerator.generateResolver(entityType);
+            }
+        }
         return true;
     }
 }

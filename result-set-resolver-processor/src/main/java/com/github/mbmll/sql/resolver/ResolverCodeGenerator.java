@@ -34,7 +34,7 @@ public class ResolverCodeGenerator {
         String entitySimpleName = entityElement.getSimpleName().toString();
         String resolverClassName = entitySimpleName + "ResultSetResolver";
         String packageName = elementUtil.getPackageOf(entityElement).toString();
-
+        String targetPackageName = getTargetPackageName(packageName);
         // 2. 读取注解配置：驼峰转下划线
         AutoResultSetResolver anno = entityElement.getAnnotation(AutoResultSetResolver.class);
         boolean camelToUnderline = anno.camelToUnderline();
@@ -43,13 +43,13 @@ public class ResolverCodeGenerator {
         List<FieldMeta> fieldMetaList = parseEntityFields(entityElement);
 
         // 4. 拼接源码字符串
-        StringBuilder sourceCode = buildSourceCode(packageName, resolverClassName, entityFullName, entitySimpleName,
+        StringBuilder sourceCode = buildSourceCode(packageName, targetPackageName, resolverClassName, entitySimpleName,
                 fieldMetaList, camelToUnderline);
 
         // 5. 输出java文件到编译目录
         try {
             JavaFileObject sourceFile = processingEnv.getFiler()
-                    .createSourceFile(packageName + "." + resolverClassName);
+                    .createSourceFile(targetPackageName + "." + resolverClassName);
             try (Writer writer = sourceFile.openWriter()) {
                 writer.write(sourceCode.toString());
             }
@@ -57,6 +57,19 @@ public class ResolverCodeGenerator {
             processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
                     "生成Resolver失败：" + e.getMessage(), entityElement);
         }
+    }
+
+    /**
+     * 获取目标包名, 如 com.github.mbmll.sql.entity -> com.github.mbmll.sql.resolver
+     *
+     * @param packageName
+     *
+     * @return
+     */
+    private String getTargetPackageName(String packageName) {
+        String[] split = packageName.split("\\.");
+        split[split.length - 1] = "resolver";
+        return String.join(".", split);
     }
 
     /**
@@ -105,16 +118,17 @@ public class ResolverCodeGenerator {
     /**
      * 拼接完整Resolver类源码
      */
-    private StringBuilder buildSourceCode(String pkg,
+    private StringBuilder buildSourceCode(String packageName,
+                                          String targetPackageName,
                                           String resolverClsName,
-                                          String entityFullCls,
                                           String entitySimpleCls,
                                           List<FieldMeta> fieldMetas,
                                           boolean camelToUnderline) {
         StringBuilder sb = new StringBuilder();
         // 包名
-        sb.append("package ").append(pkg).append(";\n\n");
+        sb.append("package ").append(targetPackageName).append(";\n\n");
         // import
+        sb.append("import ").append(packageName).append(".User;\n");
         sb.append("import com.github.mbmll.sql.resolver.ResultSetResolver;\n");
         sb.append("import java.sql.ResultSet;\n");
         sb.append("import java.sql.ResultSetMetaData;\n");

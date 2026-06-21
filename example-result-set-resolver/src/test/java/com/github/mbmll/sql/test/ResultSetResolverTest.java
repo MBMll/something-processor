@@ -1,8 +1,8 @@
 package com.github.mbmll.sql.test;
 
 import com.github.mbmll.sql.entity.User;
-import com.github.mbmll.sql.entity.UserResultSetResolver;
 import com.github.mbmll.sql.resolver.ResultSetResolver;
+import com.github.mbmll.sql.resolver.UserResultSetResolver;
 import junit.framework.TestCase;
 
 import java.sql.Connection;
