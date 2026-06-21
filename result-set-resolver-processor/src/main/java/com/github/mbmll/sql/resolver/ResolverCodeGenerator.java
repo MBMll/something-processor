@@ -1,23 +1,24 @@
 package com.github.mbmll.sql.resolver;
 
 
-import com.github.mbmll.sql.annotation.AutoResultSetResolver;
-
 import javax.annotation.processing.ProcessingEnvironment;
 import javax.lang.model.element.*;
 import javax.lang.model.type.TypeMirror;
+import javax.lang.model.util.Elements;
+import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
 import java.io.IOException;
 import java.io.Writer;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 public class ResolverCodeGenerator {
 
     private final ProcessingEnvironment processingEnv;
-    private final javax.lang.model.util.Elements elementUtil;
-    private final javax.lang.model.util.Types typeUtil;
+    private final Elements elementUtil;
+    private final Types typeUtil;
 
     public ResolverCodeGenerator(ProcessingEnvironment processingEnv) {
         this.processingEnv = processingEnv;
@@ -29,33 +30,35 @@ public class ResolverCodeGenerator {
      * 生成实体对应的 Resolver 类
      */
     public void generateResolver(TypeElement entityElement) {
-        // 1. 获取实体基础信息
-        String entityFullName = entityElement.getQualifiedName().toString();
+        // 获取实体基础信息
         String entitySimpleName = entityElement.getSimpleName().toString();
         String resolverClassName = entitySimpleName + "ResultSetResolver";
         String packageName = elementUtil.getPackageOf(entityElement).toString();
         String targetPackageName = getTargetPackageName(packageName);
-        // 2. 读取注解配置：驼峰转下划线
-        AutoResultSetResolver anno = entityElement.getAnnotation(AutoResultSetResolver.class);
-        boolean camelToUnderline = anno.camelToUnderline();
-
-        // 3. 解析实体所有字段 + setter映射
-        List<FieldMeta> fieldMetaList = parseEntityFields(entityElement);
 
         // 4. 拼接源码字符串
-        StringBuilder sourceCode = buildSourceCode(packageName, targetPackageName, resolverClassName, entitySimpleName,
-                fieldMetaList, camelToUnderline);
+        StringBuilder sourceCode = buildSourceCode(entityElement, targetPackageName, resolverClassName);
 
         // 5. 输出java文件到编译目录
         try {
-            JavaFileObject sourceFile = processingEnv.getFiler()
-                    .createSourceFile(targetPackageName + "." + resolverClassName);
-            try (Writer writer = sourceFile.openWriter()) {
-                writer.write(sourceCode.toString());
-            }
+            String targetClassFullName = targetPackageName + "." + resolverClassName;
+            write(targetClassFullName, sourceCode);
         } catch (IOException e) {
             processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
                     "生成Resolver失败：" + e.getMessage(), entityElement);
+        }
+    }
+
+    /**
+     * @param targetClassFullName
+     * @param sourceCode
+     *
+     * @throws IOException
+     */
+    private void write(String targetClassFullName, StringBuilder sourceCode) throws IOException {
+        JavaFileObject sourceFile = processingEnv.getFiler().createSourceFile(targetClassFullName);
+        try (Writer writer = sourceFile.openWriter()) {
+            writer.write(sourceCode.toString());
         }
     }
 
@@ -81,24 +84,33 @@ public class ResolverCodeGenerator {
 
         for (Element element : enclosedElements) {
             // 只处理成员变量
-            if (!(element instanceof VariableElement) || element.getKind() != ElementKind.FIELD) {
-                continue;
-            }
-            VariableElement field = (VariableElement) element;
-            String fieldName = field.getSimpleName().toString();
-            TypeMirror fieldType = field.asType();
-            // 拼接setter方法名 setXxx
-            String setterName = "set" + fieldName.substring(0, 1).toUpperCase() + fieldName.substring(1);
+            if (element instanceof VariableElement && (element.getKind() == ElementKind.FIELD)) {
+                VariableElement field = (VariableElement) element;
+                String fieldName = field.getSimpleName().toString();
+                TypeMirror fieldType = field.asType();
+                // 拼接setter方法名 setXxx
+                String setterName = "set" + fieldName.substring(0, 1).toUpperCase() + fieldName.substring(1);
 
-            // 查找对应setter方法
-            ExecutableElement setter = findSetter(entityElement, setterName);
-            if (setter == null) {
-                // 无setter跳过，无法赋值
-                continue;
+                // 查找对应setter方法
+                ExecutableElement setter = findSetter(entityElement, setterName);
+                if (setter != null) {
+                    metaList.add(new FieldMeta(fieldName, fieldType, setterName));
+                }
             }
-            metaList.add(new FieldMeta(fieldName, fieldType, setterName));
         }
         return metaList;
+    }
+
+    /**
+     * @param entitySimpleCls
+     * @param fieldMeta
+     *
+     * @return
+     */
+    private String buildSetter(String entitySimpleCls, FieldMeta fieldMeta) {
+        return "    protected void " + fieldMeta.setterName + "(" + entitySimpleCls + " target, ResultSet rs, int i) throws SQLException {\n" +
+                "        target." + fieldMeta.setterName + "(rs." + fieldMeta.rsGetter + "(i));\n" +
+                "    }\n\n";
     }
 
     /**
@@ -118,25 +130,22 @@ public class ResolverCodeGenerator {
     /**
      * 拼接完整Resolver类源码
      */
-    private StringBuilder buildSourceCode(String packageName,
-                                          String targetPackageName,
-                                          String resolverClsName,
-                                          String entitySimpleCls,
-                                          List<FieldMeta> fieldMetas,
-                                          boolean camelToUnderline) {
+    private StringBuilder buildSourceCode(TypeElement entityElement, String targetPackageName,
+                                          String resolverClsName) {
+        String entitySimpleCls = entityElement.getSimpleName().toString();
+        // 解析实体所有字段 + setter映射
+        List<FieldMeta> fieldMetas = parseEntityFields(entityElement);
         StringBuilder sb = new StringBuilder();
         // 包名
-        sb.append("package ").append(targetPackageName).append(";\n\n");
+        sb.append(buildPackage(targetPackageName));
         // import
-        sb.append("import ").append(packageName).append(".User;\n");
-        sb.append("import com.github.mbmll.sql.resolver.ResultSetResolver;\n");
-        sb.append("import java.sql.ResultSet;\n");
-        sb.append("import java.sql.ResultSetMetaData;\n");
-        sb.append("import java.sql.SQLException;\n\n");
+        List<String> imports = new ArrayList<>();
+        imports.add(entityElement.getQualifiedName().toString());
+        imports.addAll(collectImports());
+        sb.append(buildImport(imports));
 
         // 类定义
-        sb.append("public class ").append(resolverClsName)
-                .append(" implements ResultSetResolver<").append(entitySimpleCls).append("> {\n\n");
+        sb.append("public class ").append(resolverClsName).append(" implements ResultSetResolver<").append(entitySimpleCls).append("> {\n\n");
 
         // 重写resolve方法
         sb.append("    @Override\n");
@@ -150,12 +159,8 @@ public class ResolverCodeGenerator {
 
         // 循环生成每个字段case分支
         for (FieldMeta meta : fieldMetas) {
-            String column = camelToUnderline ? camel2Underline(meta.fieldName) : meta.fieldName;
-            // 获取ResultSet取值方法
-            String rsGetter = getResultSetGetter(meta.fieldType);
-            sb.append("                case \"").append(column).append("\":\n");
-            sb.append("                    entity.").append(meta.setterName).append("(rs.").append(rsGetter).append(
-                    "(i));\n");
+            sb.append("                case \"").append(meta.column).append("\":\n");
+            sb.append("                    ").append(meta.setterName).append("(entity,rs,i);\n");
             sb.append("                    break;\n");
         }
 
@@ -165,14 +170,47 @@ public class ResolverCodeGenerator {
         sb.append("        }\n");
         sb.append("        return entity;\n");
         sb.append("    }\n");
+        for (FieldMeta fieldMeta : fieldMetas) {
+            sb.append(buildSetter(entitySimpleCls, fieldMeta));
+        }
         sb.append("}");
         return sb;
+    }
+
+    private Collection<String> collectImports() {
+        List<String> imports = new ArrayList<>();
+        imports.add("com.github.mbmll.sql.resolver.ResultSetResolver");
+        imports.add("java.sql.ResultSet");
+        imports.add("java.sql.ResultSetMetaData");
+        imports.add("java.sql.SQLException");
+        return imports;
+    }
+
+    /**
+     * 生成 import
+     *
+     * @param imports
+     *
+     * @return
+     */
+    private String buildImport(List<String> imports) {
+        StringBuilder sb = new StringBuilder();
+        for (String clazz : imports) {
+            sb.append("import ").append(clazz).append(";\n");
+        }
+        sb.append("\n");
+        return sb.toString();
+    }
+
+    private static String buildPackage(String targetPackageName) {
+        // 转成 字符串拼接模式
+        return "package " + targetPackageName + ";\n\n";
     }
 
     /**
      * Java类型 → ResultSet取值方法映射
      */
-    private String getResultSetGetter(TypeMirror type) {
+    private static String getResultSetGetter(TypeMirror type) {
         String typeName = type.toString();
         switch (typeName) {
             case "java.lang.String":
@@ -200,7 +238,7 @@ public class ResolverCodeGenerator {
     /**
      * 驼峰转下划线 userName → user_name
      */
-    private String camel2Underline(String str) {
+    private static String camel2Underline(String str) {
         if (str == null || str.isEmpty()) return str;
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < str.length(); i++) {
@@ -221,11 +259,17 @@ public class ResolverCodeGenerator {
         String fieldName;
         TypeMirror fieldType;
         String setterName;
+        String column;
+        // 获取ResultSet取值方法
+        String rsGetter;
 
         public FieldMeta(String fieldName, TypeMirror fieldType, String setterName) {
             this.fieldName = fieldName;
             this.fieldType = fieldType;
             this.setterName = setterName;
+            column = camel2Underline(fieldName);
+            // 获取ResultSet取值方法
+            rsGetter = getResultSetGetter(fieldType);
         }
     }
 }
